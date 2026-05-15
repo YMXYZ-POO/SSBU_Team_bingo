@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スマブラSP チームビンゴ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
+  <style>
+    /* キャラクター画像のマス目用スタイル */
+    .bingo-cell {
+      position: relative;
+      background-size: cover;
+      background-position: center top;
+      transition: all 0.2s ease-in-out;
+      user-select: none;
+    }
+    .bingo-cell::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.75); /* 未チェック時は暗く */
+      transition: all 0.3s;
+    }
+    .bingo-cell.opened {
+      transform: scale(0.95);
+      border-color: #fbbf24; /* yellow-400 */
+    }
+    .bingo-cell.opened::before {
+      background-color: rgba(0, 0, 0, 0.1); /* 開けたら明るく */
+    }
+    /* 文字の縁取り（画像の上でも読みやすくする） */
+    .text-outline {
+      text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0px 2px 4px rgba(0,0,0,0.8);
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen pb-10">
+
+  <!-- メイン画面を描画するコンテナ -->
+  <div id="app" class="max-w-6xl mx-auto p-4">
+    <!-- JavaScriptでここに画面が作られます -->
+  </div>
+
+  <!-- トースト通知用コンテナ -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script type="module">
+    // ▼▼▼ Firebaseの設定情報 ▼▼▼
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, update, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDbbXxXLOcT2_pwRUuqKndkJS7Hte24Nnw",
+      authDomain: "ssbuteambingo.firebaseapp.com",
+      databaseURL: "https://ssbuteambingo-default-rtdb.firebaseio.com",
+      projectId: "ssbuteambingo",
+      storageBucket: "ssbuteambingo.firebasestorage.app",
+      messagingSenderId: "1017988553391",
+      appId: "1:1017988553391:web:08ca0e90b3488081c7d25a",
+      measurementId: "G-LPMCZG84TM"
+    };
+
+    // Firebase初期化
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ▼▼▼ 状態管理変数 ▼▼▼
+    let myName = "";
+    let myUserId = "user_" + Math.random().toString(36).substr(2, 9);
+    let myTeam = "";
+    let isHost = false;
+    let currentRoomId = null;
+    let roomData = null;
+    let previousUsersCount = 0;
+
+    // ▼▼▼ ファイターデータ（公式画像IDに準拠） ▼▼▼
+    const baseFighters = [
+      { name: "マリオ", id: "mario" }, { name: "ドンキーコング", id: "donkey_kong" }, { name: "リンク", id: "link" },
+      { name: "サムス", id: "samus" }, { name: "ダークサムス", id: "dark_samus" }, { name: "ヨッシー", id: "yoshi" },
+      { name: "カービィ", id: "kirby" }, { name: "フォックス", id: "fox" }, { name: "ピカチュウ", id: "pikachu" },
+      { name: "ルイージ", id: "luigi" }, { name: "ネス", id: "ness" }, { name: "C・ファルコン", id: "captain_falcon" },
+      { name: "プリン", id: "purin" }, { name: "ピーチ", id: "peach" }, { name: "デイジー", id: "daisy" },
+      { name: "クッパ", id: "koopa" }, { name: "アイスクライマー", id: "ice_climber" }, { name: "シーク", id: "sheik" },
+      { name: "ゼルダ", id: "zelda" }, { name: "ドクターマリオ", id: "dr_mario" }, { name: "ピチュー", id: "pichu" },
+      { name: "ファルコ", id: "falco" }, { name: "マルス", id: "marth" }, { name: "ルキナ", id: "lucina" },
+      { name: "こどもリンク", id: "young_link" }, { name: "ガノンドロフ", id: "ganondorf" }, { name: "ミュウツー", id: "mewtwo" },
+      { name: "ロイ", id: "roy" }, { name: "クロム", id: "chrom" }, { name: "ゲムヲ", id: "mr_game_and_watch" },
+      { name: "メタナイト", id: "meta_knight" }, { name: "ピット", id: "pit" }, { name: "ブラックピット", id: "black_pit" },
+      { name: "ゼロサム", id: "zero_suit_samus" }, { name: "ワリオ", id: "wario" }, { name: "スネーク", id: "snake" },
+      { name: "アイク", id: "ike" }, { name: "ポケトレ", id: "pokemon_trainer" }, { name: "ディディー", id: "diddy_kong" },
+      { name: "リュカ", id: "lucas" }, { name: "ソニック", id: "sonic" }, { name: "デデデ", id: "dedede" },
+      { name: "オリマー", id: "pikmin_and_olimar" }, { name: "ルカリオ", id: "lucario" }, { name: "ロボット", id: "rob" },
+      { name: "トゥーンリンク", id: "toon_link" }, { name: "ウルフ", id: "wolf" }, { name: "むらびと", id: "murabito" },
+      { name: "ロックマン", id: "rockman" }, { name: "WiiFit", id: "wii_fit_trainer" }, { name: "ロゼチコ", id: "rosetta_and_chiko" },
+      { name: "リトル・マック", id: "little_mac" }, { name: "ゲッコウガ", id: "gekkouga" }, { name: "パルテナ", id: "palutena" },
+      { name: "パックマン", id: "pac_man" }, { name: "ルフレ", id: "reflet" }, { name: "シュルク", id: "shulk" },
+      { name: "クッパJr.", id: "koopa_jr" }, { name: "ダックハント", id: "duck_hunt" }, { name: "リュウ", id: "ryu" },
+      { name: "ケン", id: "ken" }, { name: "クラウド", id: "cloud" }, { name: "カムイ", id: "kamui" },
+      { name: "ベヨネッタ", id: "bayonetta" }, { name: "インクリング", id: "inkling" }, { name: "リドリー", id: "ridley" },
+      { name: "シモン", id: "simon" }, { name: "リヒター", id: "richter" }, { name: "キングクルール", id: "king_k_rool" },
+      { name: "しずえ", id: "shizue" }, { name: "ガオガエン", id: "gaogaen" }, { name: "パックン", id: "packun_flower" },
+      { name: "ジョーカー", id: "joker" }, { name: "勇者", id: "dq_hero" }, { name: "バンカズ", id: "banjo_and_kazooie" },
+      { name: "テリー", id: "terry" }, { name: "ベレト/ス", id: "byleth" }, { name: "ミェンミェン", id: "minmin" },
+      { name: "スティーブ", id: "steve" }, { name: "セフィロス", id: "sephiroth" }, { name: "ホムヒカ", id: "homura" },
+      { name: "カズヤ", id: "kazuya" }, { name: "ソラ", id: "sora" }
+    ];
+    const miiFighters = [
+      { name: "Mii格闘", id: "mii_fighter" }, { name: "Mii剣術", id: "mii_fighter" }, { name: "Mii射撃", id: "mii_fighter" }
+    ];
+
+    // ▼▼▼ ユーティリティ関数 ▼▼▼
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const bgColor = type === 'error' ? 'bg-red-500' : 'bg-green-500';
+      toast.className = `${bgColor} text-white px-4 py-2 rounded shadow-lg transform transition-all duration-500 translate-x-full font-bold`;
+      toast.innerText = message;
+      container.appendChild(toast);
+      
+      setTimeout(() => toast.classList.remove('translate-x-full'), 10);
+      setTimeout(() => {
+        toast.classList.add('translate-x-full');
+        setTimeout(() => toast.remove(), 500);
+      }, 3000);
+    }
+
+    function shuffle(array) {
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function generateBoardData(includeMii, centerFree) {
+      let pool = [...baseFighters];
+      if (includeMii) pool = pool.concat(miiFighters);
+      pool = shuffle(pool);
+      
+      const board = [];
+      for (let i = 0; i < 25; i++) {
+        if (i === 12 && centerFree) {
+          board.push({ name: "FREE", id: "free", opened: true, isFree: true });
+        } else {
+          board.push({ ...pool.pop(), opened: false, isFree: false });
+        }
+      }
+      return board;
+    }
+
+    // ▼▼▼ Firebase 通信・部屋管理 ▼▼▼
+    
+    // HTMLのonclickから呼び出せるように window オブジェクトに紐付ける
+    window.createRoom = async function(name, includeMii, centerFree) {
+      if (!name) return showToast('名前を入力してください', 'error');
+      myName = name;
+      isHost = true;
+      currentRoomId = Math.floor(1000 + Math.random() * 9000).toString(); // 4桁のID
+      myTeam = 'UNASSIGNED'; // 最初は未所属
+
+      const initialData = {
+        status: 'waiting',
+        settings: { includeMii, centerFree },
+        users: {
+          [myUserId]: { name: myName, team: myTeam, isHost: true }
+        }
+      };
+
+      try {
+        await set(ref(db, `rooms/${currentRoomId}`), initialData);
+        // (2,3) 突然の切断時にも自分をusersから消す
+        onDisconnect(ref(db, `rooms/${currentRoomId}/users/${myUserId}`)).remove();
+        listenRoom(currentRoomId);
+      } catch (error) {
+        showToast('部屋の作成に失敗しました。ルールの設定を確認してください。', 'error');
+        console.error("Firebase Error:", error);
+      }
+    }
+
+    window.joinRoom = async function(name, roomIdInput) {
+      if (!name) return showToast('名前を入力してください', 'error');
+      if (!roomIdInput) return showToast('合言葉を入力してください', 'error');
+      
+      try {
+        const snapshot = await get(ref(db, `rooms/${roomIdInput}`));
+        if (!snapshot.exists()) return showToast('部屋が見つかりません', 'error');
+        
+        const data = snapshot.val();
+        myName = name;
+        isHost = false;
+        currentRoomId = roomIdInput;
+
+        // (1) 途中参加のケース
+        if (data.status === 'playing') {
+          const currentUsers = Object.values(data.users || {});
+          const redCount = currentUsers.filter(u => u.team === 'RED').length;
+          const blueCount = currentUsers.filter(u => u.team === 'BLUE').length;
+          myTeam = redCount <= blueCount ? 'RED' : 'BLUE'; // 人数が少ないチームに自動配属
+          showToast('ゲーム進行中のため、自動でチームに配属されました');
+        } else {
+          myTeam = 'UNASSIGNED'; // 待機中なら未所属
+        }
+
+        await set(ref(db, `rooms/${currentRoomId}/users/${myUserId}`), {
+          name: myName, team: myTeam, isHost: false
+        });
+
+        // (2,3) 突然の切断時にも自分をusersから消す
+        onDisconnect(ref(db, `rooms/${currentRoomId}/users/${myUserId}`)).remove();
+        listenRoom(currentRoomId);
+      } catch (error) {
+        showToast('入室に失敗しました。', 'error');
+        console.error("Firebase Error:", error);
+      }
+    }
+
+    function listenRoom(roomId) {
+      onValue(ref(db, `rooms/${roomId}`), (snapshot) => {
+        const data = snapshot.val();
+        
+        // 部屋が解散されたか、自分が退出（切断）した場合はリロード
+        if (!data || !data.users || !data.users[myUserId]) {
+          window.location.reload();
+          return;
+        }
+        
+        roomData = data;
+        
+        // 自分の最新のチーム状態を同期
+        myTeam = data.users[myUserId].team;
+
+        // (3) ホスト不在時の自動移譲（ホストが落ちた場合）
+        const usersList = Object.keys(data.users).map(k => ({ id: k, ...data.users[k] }));
+        const hostExists = usersList.some(u => u.isHost);
+        
+        if (!hostExists) {
+          // ID順で一番上の人を新しいホストに昇格
+          usersList.sort((a, b) => a.id.localeCompare(b.id));
+          if (usersList[0].id === myUserId) {
+            isHost = true;
+            update(ref(db, `rooms/${roomId}/users/${myUserId}`), { isHost: true });
+            showToast('前のホストが退出したため、あなたがホストになりました', 'success');
+          }
+        } else {
+          // 通常の権限同期
+          isHost = data.users[myUserId].isHost || false;
+        }
+        
+        // 参加者通知ロジック
+        if (previousUsersCount > 0 && usersList.length > previousUsersCount) {
+          const newUsers = usersList.filter(u => u.name !== myName);
+          if (newUsers.length > 0) showToast(`✨ 誰かが参加しました！`);
+        }
+        previousUsersCount = usersList.length;
+
+        render();
+      });
+    }
+
+    window.changeTeam = async function(team) {
+      if (!currentRoomId) return;
+      try {
+        await update(ref(db, `rooms/${currentRoomId}/users/${myUserId}`), { team: team });
+      } catch (error) {
+        showToast('チーム変更に失敗しました', 'error');
+      }
+    };
+
+    window.randomizeTeams = async function() {
+      if (!isHost || !currentRoomId) return;
+      const usersList = Object.keys(roomData.users);
+      if (usersList.length === 0) return;
+      
+      const shuffled = shuffle(usersList);
+      const updates = {};
+      shuffled.forEach((userId, index) => {
+        const assignedTeam = index % 2 === 0 ? 'RED' : 'BLUE'; // 半分ずつREDとBLUEに割り当て
+        updates[`rooms/${currentRoomId}/users/${userId}/team`] = assignedTeam;
+      });
+      
+      try {
+        await update(ref(db), updates);
+      } catch (error) {
+        showToast('ランダム振り分けに失敗しました', 'error');
+      }
+    };
+
+    window.startGame = async function() {
+      if (!isHost) return;
+      const users = Object.values(roomData.users || {});
+      const hasUnassigned = users.some(u => u.team === 'UNASSIGNED');
+      if (hasUnassigned) {
+        return showToast('全員がチームに参加するまで開始できません', 'error');
+      }
+
+      const boards = {
+        RED: generateBoardData(roomData.settings.includeMii, roomData.settings.centerFree),
+        BLUE: generateBoardData(roomData.settings.includeMii, roomData.settings.centerFree)
+      };
+      await update(ref(db, `rooms/${currentRoomId}`), { status: 'playing', boards });
+    };
+
+    // (5) 再戦機能（待機画面に戻る）
+    window.resetGame = async function() {
+      if (!isHost || !currentRoomId) return;
+      await update(ref(db, `rooms/${currentRoomId}`), { status: 'waiting' });
+    };
+
+    window.toggleCell = async function(team, index) {
+      if (!isHost && myTeam !== team) {
+        return showToast('⚠️ 自分のチームのシートのみ操作できます', 'error');
+      }
+      if (roomData.boards[team][index].isFree) return; // FREEは押せない
+
+      const currentOpened = roomData.boards[team][index].opened;
+      await update(ref(db, `rooms/${currentRoomId}/boards/${team}/${index}`), {
+        opened: !currentOpened
+      });
+    };
+
+    // (2) 退出時のデータ掃除ロジック
+    window.leaveRoom = async function() {
+      if (currentRoomId && roomData && roomData.users) {
+        const userCount = Object.keys(roomData.users).length;
+        if (userCount <= 1) {
+          // 自分が最後の1人なら部屋データごと削除（ゴミを残さない）
+          await remove(ref(db, `rooms/${currentRoomId}`));
+        } else {
+          // それ以外は自分だけ削除（残りのメンバーでホスト移譲等が発火）
+          await remove(ref(db, `rooms/${currentRoomId}/users/${myUserId}`));
+        }
+      }
+      window.location.reload();
+    };
+
+    // ▼▼▼ 画面描画 (UI) ▼▼▼
+    function render() {
+      const appDiv = document.getElementById('app');
+      
+      if (!currentRoomId) {
+        // --- ログイン画面 ---
+        appDiv.innerHTML = `
+          <div class="max-w-md mx-auto bg-gray-800 p-8 rounded-xl shadow-2xl mt-10 border border-gray-700">
+            <div class="flex justify-center mb-8">
+              <!-- ▼ ロゴ画像 ▼ -->
+              <!-- ご自身でアップロードされた画像を使用する場合は、このHTMLファイルと同じフォルダに画像を置き、 -->
+              <!-- 下記の src="～" の部分を src="./Dt-Jq4hU0AAx17Y.png" に書き換えてください -->
+              <img src="./Dt-Jq4hU0AAx17Y.png" alt="大乱闘スマッシュブラザーズ SPECIAL" class="w-full max-w-sm object-contain bg-white p-4 rounded-xl drop-shadow-2xl hover:scale-105 transition-transform">
+            </div>
+            
+            <div class="mb-6">
+              <label class="block text-gray-400 text-sm font-bold mb-2">あなたの名前</label>
+              <input type="text" id="nameInput" class="w-full p-3 rounded bg-gray-900 border border-gray-600 focus:border-red-500 focus:outline-none text-white font-bold" placeholder="プレイヤーネーム">
+            </div>
+
+            <hr class="border-gray-700 my-6">
+
+            <div class="mb-6 bg-gray-900 p-4 rounded border border-gray-700">
+              <h2 class="text-lg font-bold mb-3 text-red-400">ホストとして新しく部屋を作る</h2>
+              <label class="flex items-center mb-2 cursor-pointer">
+                <input type="checkbox" id="miiCheck" class="mr-2 w-4 h-4 accent-red-500"> Miiファイターを含める
+              </label>
+              <label class="flex items-center mb-4 cursor-pointer">
+                <input type="checkbox" id="freeCheck" class="mr-2 w-4 h-4 accent-red-500" checked> 中央を「FREE」マスにする
+              </label>
+              <button onclick="createRoom(document.getElementById('nameInput').value, document.getElementById('miiCheck').checked, document.getElementById('freeCheck').checked)" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded shadow">
+                新しく部屋を作る
+              </button>
+            </div>
+
+            <div class="mb-2 bg-gray-900 p-4 rounded border border-gray-700">
+              <h2 class="text-lg font-bold mb-3 text-blue-400">ゲストとして部屋に参加する</h2>
+              <input type="text" id="roomInput" class="w-full p-3 mb-3 rounded bg-gray-800 border border-gray-600 focus:border-blue-500 focus:outline-none text-center text-xl tracking-widest font-bold" placeholder="合言葉 (4桁)" maxlength="4">
+              <button onclick="joinRoom(document.getElementById('nameInput').value, document.getElementById('roomInput').value)" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded shadow">
+                合言葉で参加する
+              </button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      if (roomData.status === 'waiting') {
+        // --- 待機ロビー画面 ---
+        const users = Object.values(roomData.users || {});
+        const unassignedUsers = users.filter(u => u.team === 'UNASSIGNED');
+        const redUsers = users.filter(u => u.team === 'RED');
+        const blueUsers = users.filter(u => u.team === 'BLUE');
+        const canStart = unassignedUsers.length === 0 && users.length > 0; // 全員がチームに所属していればスタート可能
+
+        appDiv.innerHTML = `
+          <div class="max-w-2xl mx-auto bg-gray-800 p-8 rounded-xl shadow-2xl mt-10 border border-gray-700 text-center">
+            <p class="text-green-400 font-bold mb-2">✅ サーバーと同期完了！</p>
+            <h2 class="text-gray-400 mb-1">この部屋の合言葉</h2>
+            <div class="text-5xl font-extrabold text-white tracking-widest bg-gray-900 py-4 rounded mb-8 border border-gray-600 shadow-inner">
+              ${currentRoomId}
+            </div>
+
+            <!-- 未所属リスト -->
+            <div class="bg-gray-700/50 p-4 rounded mb-6 border border-gray-600">
+              <h3 class="text-gray-300 font-bold mb-3">参加者一覧（チーム未選択）</h3>
+              <div class="flex flex-wrap gap-2 justify-center min-h-[2rem]">
+                ${unassignedUsers.map(u => `<span class="bg-gray-600 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">${u.name} ${u.name === myName ? '<span class="text-xs text-yellow-300">(あなた)</span>' : ''}</span>`).join('')}
+                ${unassignedUsers.length === 0 ? '<span class="text-gray-500 text-sm">なし</span>' : ''}
+              </div>
+            </div>
+
+            <!-- チームリスト -->
+            <div class="grid grid-cols-2 gap-4 mb-6 text-left">
+              <div class="bg-red-900/30 border border-red-700 p-4 rounded flex flex-col">
+                <h3 class="text-red-400 font-bold text-xl mb-3 text-center border-b border-red-700 pb-2">TEAM1</h3>
+                <ul class="space-y-2 flex-grow min-h-[4rem]">
+                  ${redUsers.map(u => `<li class="font-bold flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-500"></span>${u.name} ${u.name === myName ? '<span class="text-xs bg-gray-600 px-2 py-1 rounded">あなた</span>' : ''} ${u.isHost ? '<span class="text-xs border border-yellow-500 text-yellow-500 px-1 rounded">HOST</span>' : ''}</li>`).join('')}
+                </ul>
+                <button onclick="changeTeam('RED')" class="mt-4 w-full bg-red-600/30 hover:bg-red-600 border border-red-500 text-white font-bold py-2 rounded transition-colors ${myTeam === 'RED' ? 'hidden' : ''}">ここに入る</button>
+              </div>
+              <div class="bg-blue-900/30 border border-blue-700 p-4 rounded flex flex-col">
+                <h3 class="text-blue-400 font-bold text-xl mb-3 text-center border-b border-blue-700 pb-2">TEAM2</h3>
+                <ul class="space-y-2 flex-grow min-h-[4rem]">
+                  ${blueUsers.map(u => `<li class="font-bold flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-blue-500"></span>${u.name} ${u.name === myName ? '<span class="text-xs bg-gray-600 px-2 py-1 rounded">あなた</span>' : ''} ${u.isHost ? '<span class="text-xs border border-yellow-500 text-yellow-500 px-1 rounded">HOST</span>' : ''}</li>`).join('')}
+                </ul>
+                <button onclick="changeTeam('BLUE')" class="mt-4 w-full bg-blue-600/30 hover:bg-blue-600 border border-blue-500 text-white font-bold py-2 rounded transition-colors ${myTeam === 'BLUE' ? 'hidden' : ''}">ここに入る</button>
+              </div>
+            </div>
+
+            <!-- ホスト用操作ボタン -->
+            ${isHost ? `
+            <div class="mb-6 flex justify-center">
+              <button onclick="randomizeTeams()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded shadow flex items-center gap-2 transition-colors">
+                🎲 ランダムに振り分ける
+              </button>
+            </div>
+            ` : ''}
+
+            ${isHost 
+              ? `<button onclick="startGame()" class="w-full ${canStart ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:from-red-500 hover:to-blue-500 cursor-pointer transform hover:scale-105' : 'bg-gray-600 cursor-not-allowed opacity-50'} text-white text-xl font-bold py-4 px-4 rounded shadow-lg transition-all" ${canStart ? '' : 'disabled'}>
+                  ${canStart ? 'ゲーム開始' : '全員がチームに参加すると開始できます'}
+                 </button>`
+              : `<p class="text-gray-400 animate-pulse font-bold text-lg">ホストがゲームを開始するのを待っています...</p>`
+            }
+          </div>
+        `;
+        return;
+      }
+
+      if (roomData.status === 'playing') {
+        // --- ビンゴ画面 ---
+        const renderBoard = (team, boardData) => {
+          const isMyBoard = (team === myTeam || isHost);
+          const headerColor = team === 'RED' ? 'bg-red-600' : 'bg-blue-600';
+          const borderColor = team === 'RED' ? 'border-red-600' : 'border-blue-600';
+          const teamDisplayName = team === 'RED' ? 'TEAM1' : 'TEAM2';
+          
+          return `
+            <div class="flex-1 bg-gray-800 rounded-xl overflow-hidden border-2 ${borderColor} shadow-2xl ${!isMyBoard ? 'opacity-80' : ''}">
+              <div class="${headerColor} text-center py-3 font-extrabold text-xl tracking-widest shadow-md flex justify-between px-4 items-center">
+                <span>${teamDisplayName}</span>
+                ${team === myTeam ? '<span class="text-xs bg-white text-black px-2 py-1 rounded-full font-bold">あなたのチーム</span>' : ''}
+              </div>
+              <div class="p-2 sm:p-4">
+                <div class="grid grid-cols-5 gap-1 sm:gap-2">
+                  ${boardData.map((cell, idx) => {
+                    const imgUrl = cell.isFree ? '' : `https://www.smashbros.com/assets_v2/img/fighter/thumb_a/${cell.id}.png`;
+                    return `
+                      <div onclick="toggleCell('${team}', ${idx})" 
+                           class="bingo-cell aspect-square rounded cursor-pointer border-2 ${cell.opened ? 'opened' : 'border-gray-700'} ${isMyBoard ? 'hover:border-gray-400' : ''}"
+                           style="background-image: url('${imgUrl}'); background-color: ${cell.isFree ? '#374151' : '#1f2937'};">
+                        <div class="absolute inset-0 flex items-center justify-center p-0.5 z-10 pointer-events-none">
+                          <span class="text-[10px] sm:text-xs md:text-sm font-bold text-center leading-tight text-white text-outline ${cell.opened ? 'opacity-50' : ''}">
+                            ${cell.name}
+                          </span>
+                        </div>
+                        ${cell.opened ? '<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-yellow-400 font-bold text-2xl sm:text-4xl md:text-5xl drop-shadow-md z-20 pointer-events-none" style="text-shadow: 0 0 10px rgba(0,0,0,0.8);">✔</div>' : ''}
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        };
+
+        appDiv.innerHTML = `
+          <div class="flex flex-wrap justify-between items-center gap-2 mb-4 bg-gray-800 p-3 rounded shadow border border-gray-700">
+            <div class="font-bold flex flex-wrap items-center gap-4">
+              <span>合言葉: <span class="text-green-400 tracking-widest text-lg">${currentRoomId}</span></span>
+              ${isHost ? `<button onclick="resetGame()" class="text-sm bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded shadow font-bold transition-colors">🔄 待機画面に戻る</button>` : ''}
+            </div>
+            <button onclick="leaveRoom()" class="text-sm bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded font-bold transition-colors">退出する</button>
+          </div>
+          <div class="flex flex-col lg:flex-row gap-6">
+            ${renderBoard('RED', roomData.boards.RED)}
+            ${renderBoard('BLUE', roomData.boards.BLUE)}
+          </div>
+        `;
+      }
+    }
+
+    // 初期描画
+    render();
+  </script>
+</body>
+</html>
