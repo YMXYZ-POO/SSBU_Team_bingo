@@ -149,7 +149,7 @@
       return board;
     }
 
-    // ▼▼▼ ビンゴカード描画関数（独立化させてエラー原因を完全排除） ▼▼▼
+    // ▼▼▼ ビンゴカード描画関数 ▼▼▼
     function renderBoard(team, boardData) {
       const isMyBoard = (team === myTeam || isHost);
       const headerColor = team === 'RED' ? 'bg-red-600' : 'bg-blue-600';
@@ -216,7 +216,6 @@
         listenRoom(currentRoomId);
       } catch (error) {
         showToast('部屋の作成に失敗しました。ルールの設定を確認してください。', 'error');
-        console.error("Firebase Error:", error);
       }
     }
 
@@ -251,7 +250,6 @@
         listenRoom(currentRoomId);
       } catch (error) {
         showToast('入室に失敗しました。', 'error');
-        console.error("Firebase Error:", error);
       }
     }
 
@@ -374,14 +372,11 @@
             <div class="flex justify-center mb-8">
               <img src="./Dt-Jq4hU0AAx17Y.png" alt="大乱闘スマッシュブラザーズ SPECIAL" class="w-full max-w-sm object-contain bg-white p-4 rounded-xl drop-shadow-2xl hover:scale-105 transition-transform">
             </div>
-            
             <div class="mb-6">
               <label class="block text-gray-400 text-sm font-bold mb-2">あなたの名前</label>
               <input type="text" id="nameInput" class="w-full p-3 rounded bg-gray-900 border border-gray-600 focus:border-red-500 focus:outline-none text-white font-bold" placeholder="プレイヤーネーム">
             </div>
-
             <hr class="border-gray-700 my-6">
-
             <div class="mb-6 bg-gray-900 p-4 rounded border border-gray-700">
               <h2 class="text-lg font-bold mb-3 text-red-400">ホストとして新しく部屋を作る</h2>
               <label class="flex items-center mb-2 cursor-pointer">
@@ -394,7 +389,6 @@
                 新しく部屋を作る
               </button>
             </div>
-
             <div class="mb-2 bg-gray-900 p-4 rounded border border-gray-700">
               <h2 class="text-lg font-bold mb-3 text-blue-400">ゲストとして部屋に参加する</h2>
               <input type="text" id="roomInput" class="w-full p-3 mb-3 rounded bg-gray-800 border border-gray-600 focus:border-blue-500 focus:outline-none text-center text-xl tracking-widest font-bold" placeholder="合言葉 (4桁)" maxlength="4">
@@ -415,35 +409,12 @@
         const blueUsers = users.filter(u => u.team === 'BLUE');
         const canStart = unassignedUsers.length === 0 && users.length > 0;
 
-        // 安全に文字列を結合（合言葉の下に表示するテキスト）
-        const unassignedNames = unassignedUsers.map(u => u.name).join('、') || 'なし';
-        const redNames = redUsers.map(u => u.name).join('、') || 'なし';
-        const blueNames = blueUsers.map(u => u.name).join('、') || 'なし';
-
         appDiv.innerHTML = `
           <div class="max-w-2xl mx-auto bg-gray-800 p-8 rounded-xl shadow-2xl mt-10 border border-gray-700 text-center">
             <p class="text-green-400 font-bold mb-2">✅ サーバーと同期完了！</p>
             <h2 class="text-gray-400 mb-1">この部屋の合言葉</h2>
-            <div class="text-5xl font-extrabold text-white tracking-widest bg-gray-900 py-4 rounded mb-4 border border-gray-600 shadow-inner">
+            <div class="text-5xl font-extrabold text-white tracking-widest bg-gray-900 py-4 rounded mb-8 border border-gray-600 shadow-inner">
               ${currentRoomId}
-            </div>
-
-            <div class="bg-gray-900/60 p-4 rounded-xl mb-6 border border-gray-700 text-sm font-bold space-y-2 max-w-xl mx-auto">
-              <div class="text-gray-400 text-xs tracking-wider border-b border-gray-700/50 pb-1">現在のチーム分け状況</div>
-              <div class="grid grid-cols-3 gap-2 text-center pt-1">
-                <div>
-                  <div class="text-gray-400 mb-0.5">未選択</div>
-                  <div class="text-white text-xs truncate" title="${unassignedNames}">${unassignedNames}</div>
-                </div>
-                <div>
-                  <div class="text-red-400 mb-0.5">TEAM1</div>
-                  <div class="text-white text-xs truncate" title="${redNames}">${redNames}</div>
-                </div>
-                <div>
-                  <div class="text-blue-400 mb-0.5">TEAM2</div>
-                  <div class="text-white text-xs truncate" title="${blueNames}">${blueNames}</div>
-                </div>
-              </div>
             </div>
 
             <div class="bg-gray-700/50 p-4 rounded mb-6 border border-gray-600">
@@ -481,7 +452,7 @@
 
             ${isHost 
               ? `<button onclick="startGame()" class="w-full ${canStart ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:from-red-500 hover:to-blue-500 cursor-pointer transform hover:scale-105' : 'bg-gray-600 cursor-not-allowed opacity-50'} text-white text-xl font-bold py-4 px-4 rounded shadow-lg transition-all" ${canStart ? '' : 'disabled'}>
-                  ${canStart ? 'ゲーム開始' : '全員がチームに参加すると開始できます'}
+                  ゲーム開始
                  </button>`
               : `<p class="text-gray-400 animate-pulse font-bold text-lg">ホストがゲームを開始するのを待っています...</p>`
             }
