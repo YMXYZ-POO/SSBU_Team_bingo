@@ -365,4 +365,99 @@
               <div class="bg-red-900/30 border border-red-700 p-4 rounded flex flex-col">
                 <h3 class="text-red-400 font-bold text-xl mb-3 text-center border-b border-red-700 pb-2">TEAM1</h3>
                 <ul class="space-y-2 flex-grow min-h-[4rem]">
-                  ${redUsers.map(u => `<li class="font-bold flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-500
+                  ${redUsers.map(u => `<li class="font-bold flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-500"></span>${u.name} ${u.name === myName ? '<span class="text-xs bg-gray-600 px-2 py-1 rounded">あなた</span>' : ''} ${u.isHost ? '<span class="text-xs border border-yellow-500 text-yellow-500 px-1 rounded">HOST</span>' : ''}</li>`).join('')}
+                </ul>
+                <button onclick="changeTeam('RED')" class="mt-4 w-full bg-red-600/30 hover:bg-red-600 border border-red-500 text-white font-bold py-2 rounded transition-colors ${myTeam === 'RED' ? 'hidden' : ''}">ここに入る</button>
+              </div>
+              <div class="bg-blue-900/30 border border-blue-700 p-4 rounded flex flex-col">
+                <h3 class="text-blue-400 font-bold text-xl mb-3 text-center border-b border-blue-700 pb-2">TEAM2</h3>
+                <ul class="space-y-2 flex-grow min-h-[4rem]">
+                  ${blueUsers.map(u => `<li class="font-bold flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-blue-500"></span>${u.name} ${u.name === myName ? '<span class="text-xs bg-gray-600 px-2 py-1 rounded">あなた</span>' : ''} ${u.isHost ? '<span class="text-xs border border-yellow-500 text-yellow-500 px-1 rounded">HOST</span>' : ''}</li>`).join('')}
+                </ul>
+                <button onclick="changeTeam('BLUE')" class="mt-4 w-full bg-blue-600/30 hover:bg-blue-600 border border-blue-500 text-white font-bold py-2 rounded transition-colors ${myTeam === 'BLUE' ? 'hidden' : ''}">ここに入る</button>
+              </div>
+            </div>
+            ${isHost ? `
+            <div class="mb-6 flex justify-center">
+              <button onclick="randomizeTeams()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded shadow flex items-center gap-2 transition-colors">
+                🎲 ランダムに振り分ける
+              </button>
+            </div>
+            ` : ''}
+            ${isHost 
+              ? `<button onclick="startGame()" class="w-full ${canStart ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:from-red-500 hover:to-blue-500 cursor-pointer transform hover:scale-105' : 'bg-gray-600 cursor-not-allowed opacity-50'} text-white text-xl font-bold py-4 px-4 rounded shadow-lg transition-all" ${canStart ? '' : 'disabled'}>
+                  ${canStart ? 'ゲーム開始' : '全員揃ったら開始できます'}
+                 </button>`
+              : `<p class="text-gray-400 animate-pulse font-bold text-lg">ホストがゲームを開始するのを待っています...</p>`
+            }
+          </div>
+        `;
+        return;
+      }
+
+      if (roomData.status === 'playing') {
+        const renderBoard = (team, boardData) => {
+          const isMyBoard = (team === myTeam || isHost);
+          const headerColor = team === 'RED' ? 'bg-red-600' : 'bg-blue-600';
+          const borderColor = team === 'RED' ? 'border-red-600' : 'border-blue-600';
+          const teamDisplayName = team === 'RED' ? 'TEAM1' : 'TEAM2';
+          
+          const teamMembers = Object.values(roomData.users || {})
+                                .filter(u => u.team === team)
+                                .map(u => u.name).join('、');
+          
+          return `
+            <div class="flex-1 bg-gray-800 rounded-xl overflow-hidden border-2 ${borderColor} shadow-2xl ${!isMyBoard ? 'opacity-80' : ''}">
+              <div class="${headerColor} text-center py-2 shadow-md px-4 flex flex-col justify-center">
+                <div class="flex justify-between items-center w-full mb-1">
+                  <span class="font-extrabold text-xl tracking-widest">${teamDisplayName}</span>
+                  ${team === myTeam ? '<span class="text-xs bg-white text-black px-2 py-1 rounded-full font-bold shadow">あなたのチーム</span>' : ''}
+                </div>
+                <div class="text-xs sm:text-sm text-white/90 text-left truncate w-full font-bold">
+                  👤 ${teamMembers || 'メンバーなし'}
+                </div>
+              </div>
+              <div class="p-2 sm:p-4">
+                <div class="grid grid-cols-5 gap-1 sm:gap-2">
+                  ${boardData.map((cell, idx) => {
+                    const imgUrl = cell.isFree ? '' : \`https://www.smashbros.com/assets_v2/img/fighter/thumb_a/\${cell.id}.png\`;
+                    return \`
+                      <div onclick="toggleCell('\${team}', \${idx})" 
+                           class="bingo-cell aspect-square rounded cursor-pointer border-2 \${cell.opened ? 'opened' : 'border-gray-700'} \${isMyBoard ? 'hover:border-gray-400' : ''}"
+                           style="background-image: url('\${imgUrl}'); background-color: \${cell.isFree ? '#374151' : '#1f2937'};">
+                        <div class="absolute inset-0 flex items-center justify-center p-0.5 z-10 pointer-events-none">
+                          <span class="text-[10px] sm:text-xs md:text-sm font-bold text-center leading-tight text-white text-outline \${cell.opened ? 'opacity-50' : ''}">
+                            \${cell.name}
+                          </span>
+                        </div>
+                        \${cell.opened ? '<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-yellow-400 font-bold text-2xl sm:text-4xl md:text-5xl drop-shadow-md z-20 pointer-events-none" style="text-shadow: 0 0 10px rgba(0,0,0,0.8);">✔</div>' : ''}
+                      </div>
+                    \`;
+                  }).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        };
+
+        appDiv.innerHTML = `
+          <div class="flex flex-wrap justify-between items-center gap-2 mb-4 bg-gray-800 p-3 rounded shadow border border-gray-700">
+            <div class="font-bold flex flex-wrap items-center gap-4">
+              <span>合言葉: <span class="text-green-400 tracking-widest text-lg">${currentRoomId}</span></span>
+              ${isHost ? `<button onclick="resetGame()" class="text-sm bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded shadow font-bold transition-colors">🔄 待機画面に戻る</button>` : ''}
+            </div>
+            <button onclick="leaveRoom()" class="text-sm bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded font-bold transition-colors">退出する</button>
+          </div>
+          <div class="flex flex-col lg:flex-row gap-6">
+            ${renderBoard('RED', roomData.boards.RED)}
+            ${renderBoard('BLUE', roomData.boards.BLUE)}
+          </div>
+        `;
+      }
+    }
+
+    // 初期描画
+    render();
+  </script>
+</body>
+</html>
