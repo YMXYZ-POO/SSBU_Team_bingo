@@ -150,12 +150,14 @@
     }
 
     // ▼▼▼ Firebase 通信・部屋管理 ▼▼▼
+    
+    // HTMLのonclickから呼び出せるように window オブジェクトに紐付ける
     window.createRoom = async function(name, includeMii, centerFree) {
       if (!name) return showToast('名前を入力してください', 'error');
       myName = name;
       isHost = true;
-      currentRoomId = Math.floor(1000 + Math.random() * 9000).toString();
-      myTeam = 'RED';
+      currentRoomId = Math.floor(1000 + Math.random() * 9000).toString(); // 4桁のID
+      myTeam = 'UNASSIGNED'; // 最初は未所属
 
       const initialData = {
         status: 'waiting',
@@ -167,10 +169,12 @@
 
       try {
         await set(ref(db, `rooms/${currentRoomId}`), initialData);
+        // 突然の切断時にも自分をusersから消す
         onDisconnect(ref(db, `rooms/${currentRoomId}/users/${myUserId}`)).remove();
         listenRoom(currentRoomId);
       } catch (error) {
         showToast('部屋の作成に失敗しました。ルールの設定を確認してください。', 'error');
+        console.error("Firebase Error:", error);
       }
     }
 
@@ -187,23 +191,27 @@
         isHost = false;
         currentRoomId = roomIdInput;
 
-        const currentUsers = Object.values(data.users || {});
-        const redCount = currentUsers.filter(u => u.team === 'RED').length;
-        const blueCount = currentUsers.filter(u => u.team === 'BLUE').length;
-        myTeam = redCount <= blueCount ? 'RED' : 'BLUE'; 
-
+        // 途中参加のケース
         if (data.status === 'playing') {
+          const currentUsers = Object.values(data.users || {});
+          const redCount = currentUsers.filter(u => u.team === 'RED').length;
+          const blueCount = currentUsers.filter(u => u.team === 'BLUE').length;
+          myTeam = redCount <= blueCount ? 'RED' : 'BLUE'; // 人数が少ないチームに自動配属
           showToast('ゲーム進行中のため、自動でチームに配属されました');
+        } else {
+          myTeam = 'UNASSIGNED'; // 待機中なら未所属
         }
 
         await set(ref(db, `rooms/${currentRoomId}/users/${myUserId}`), {
           name: myName, team: myTeam, isHost: false
         });
 
+        // 突然の切断時にも自分をusersから消す
         onDisconnect(ref(db, `rooms/${currentRoomId}/users/${myUserId}`)).remove();
         listenRoom(currentRoomId);
       } catch (error) {
         showToast('入室に失敗しました。', 'error');
+        console.error("Firebase Error:", error);
       }
     }
 
@@ -211,18 +219,23 @@
       onValue(ref(db, `rooms/${roomId}`), (snapshot) => {
         const data = snapshot.val();
         
+        // 部屋が解散されたか、自分が退出（切断）した場合はリロード
         if (!data || !data.users || !data.users[myUserId]) {
           window.location.reload();
           return;
         }
         
         roomData = data;
+        
+        // 自分の最新のチーム状態を同期
         myTeam = data.users[myUserId].team;
 
+        // ホスト不在時の自動移譲（ホストが落ちた場合）
         const usersList = Object.keys(data.users).map(k => ({ id: k, ...data.users[k] }));
         const hostExists = usersList.some(u => u.isHost);
         
         if (!hostExists) {
+          // ID順で一番上の人を新しいホストに昇格
           usersList.sort((a, b) => a.id.localeCompare(b.id));
           if (usersList[0].id === myUserId) {
             isHost = true;
@@ -230,9 +243,11 @@
             showToast('前のホストが退出したため、あなたがホストになりました', 'success');
           }
         } else {
+          // 通常の権限同期
           isHost = data.users[myUserId].isHost || false;
         }
         
+        // 参加者通知ロジック
         if (previousUsersCount > 0 && usersList.length > previousUsersCount) {
           const newUsers = usersList.filter(u => u.name !== myName);
           if (newUsers.length > 0) showToast(`✨ 誰かが参加しました！`);
@@ -260,7 +275,7 @@
       const shuffled = shuffle(usersList);
       const updates = {};
       shuffled.forEach((userId, index) => {
-        const assignedTeam = index % 2 === 0 ? 'RED' : 'BLUE';
+        const assignedTeam = index % 2 === 0 ? 'RED' : 'BLUE'; // 半分ずつREDとBLUEに割り当て
         updates[`rooms/${currentRoomId}/users/${userId}/team`] = assignedTeam;
       });
       
@@ -273,6 +288,12 @@
 
     window.startGame = async function() {
       if (!isHost) return;
+      const users = Object.values(roomData.users || {});
+      const hasUnassigned = users.some(u => u.team === 'UNASSIGNED');
+      if (hasUnassigned) {
+        return showToast('全員がチームに参加するまで開始できません', 'error');
+      }
+
       const boards = {
         RED: generateBoardData(roomData.settings.includeMii, roomData.settings.centerFree),
         BLUE: generateBoardData(roomData.settings.includeMii, roomData.settings.centerFree)
@@ -280,6 +301,7 @@
       await update(ref(db, `rooms/${currentRoomId}`), { status: 'playing', boards });
     };
 
+    // 再戦機能（待機画面に戻る）
     window.resetGame = async function() {
       if (!isHost || !currentRoomId) return;
       await update(ref(db, `rooms/${currentRoomId}`), { status: 'waiting' });
@@ -289,7 +311,7 @@
       if (!isHost && myTeam !== team) {
         return showToast('⚠️ 自分のチームのシートのみ操作できます', 'error');
       }
-      if (roomData.boards[team][index].isFree) return;
+      if (roomData.boards[team][index].isFree) return; // FREEは押せない
 
       const currentOpened = roomData.boards[team][index].opened;
       await update(ref(db, `rooms/${currentRoomId}/boards/${team}/${index}`), {
@@ -297,12 +319,15 @@
       });
     };
 
+    // 退出時のデータ掃除ロジック
     window.leaveRoom = async function() {
       if (currentRoomId && roomData && roomData.users) {
         const userCount = Object.keys(roomData.users).length;
         if (userCount <= 1) {
+          // 自分が最後の1人なら部屋データごと削除（ゴミを残さない）
           await remove(ref(db, `rooms/${currentRoomId}`));
         } else {
+          // それ以外は自分だけ削除（残りのメンバーでホスト移譲等が発火）
           await remove(ref(db, `rooms/${currentRoomId}/users/${myUserId}`));
         }
       }
@@ -314,16 +339,20 @@
       const appDiv = document.getElementById('app');
       
       if (!currentRoomId) {
+        // --- ログイン画面 ---
         appDiv.innerHTML = `
           <div class="max-w-md mx-auto bg-gray-800 p-8 rounded-xl shadow-2xl mt-10 border border-gray-700">
             <div class="flex justify-center mb-8">
               <img src="./Dt-Jq4hU0AAx17Y.png" alt="大乱闘スマッシュブラザーズ SPECIAL" class="w-full max-w-sm object-contain bg-white p-4 rounded-xl drop-shadow-2xl hover:scale-105 transition-transform">
             </div>
+            
             <div class="mb-6">
               <label class="block text-gray-400 text-sm font-bold mb-2">あなたの名前</label>
               <input type="text" id="nameInput" class="w-full p-3 rounded bg-gray-900 border border-gray-600 focus:border-red-500 focus:outline-none text-white font-bold" placeholder="プレイヤーネーム">
             </div>
+
             <hr class="border-gray-700 my-6">
+
             <div class="mb-6 bg-gray-900 p-4 rounded border border-gray-700">
               <h2 class="text-lg font-bold mb-3 text-red-400">ホストとして新しく部屋を作る</h2>
               <label class="flex items-center mb-2 cursor-pointer">
@@ -336,6 +365,7 @@
                 新しく部屋を作る
               </button>
             </div>
+
             <div class="mb-2 bg-gray-900 p-4 rounded border border-gray-700">
               <h2 class="text-lg font-bold mb-3 text-blue-400">ゲストとして部屋に参加する</h2>
               <input type="text" id="roomInput" class="w-full p-3 mb-3 rounded bg-gray-800 border border-gray-600 focus:border-blue-500 focus:outline-none text-center text-xl tracking-widest font-bold" placeholder="合言葉 (4桁)" maxlength="4">
@@ -349,10 +379,12 @@
       }
 
       if (roomData.status === 'waiting') {
+        // --- 待機ロビー画面 ---
         const users = Object.values(roomData.users || {});
+        const unassignedUsers = users.filter(u => u.team === 'UNASSIGNED');
         const redUsers = users.filter(u => u.team === 'RED');
         const blueUsers = users.filter(u => u.team === 'BLUE');
-        const canStart = users.length > 0;
+        const canStart = unassignedUsers.length === 0 && users.length > 0; // 全員がチームに所属していればスタート可能
 
         appDiv.innerHTML = `
           <div class="max-w-2xl mx-auto bg-gray-800 p-8 rounded-xl shadow-2xl mt-10 border border-gray-700 text-center">
@@ -361,6 +393,15 @@
             <div class="text-5xl font-extrabold text-white tracking-widest bg-gray-900 py-4 rounded mb-8 border border-gray-600 shadow-inner">
               ${currentRoomId}
             </div>
+
+            <div class="bg-gray-700/50 p-4 rounded mb-6 border border-gray-600">
+              <h3 class="text-gray-300 font-bold mb-3">参加者一覧（チーム未選択）</h3>
+              <div class="flex flex-wrap gap-2 justify-center min-h-[2rem]">
+                ${unassignedUsers.map(u => `<span class="bg-gray-600 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">${u.name} ${u.name === myName ? '<span class="text-xs text-yellow-300">(あなた)</span>' : ''}</span>`).join('')}
+                ${unassignedUsers.length === 0 ? '<span class="text-gray-500 text-sm">なし</span>' : ''}
+              </div>
+            </div>
+
             <div class="grid grid-cols-2 gap-4 mb-6 text-left">
               <div class="bg-red-900/30 border border-red-700 p-4 rounded flex flex-col">
                 <h3 class="text-red-400 font-bold text-xl mb-3 text-center border-b border-red-700 pb-2">TEAM1</h3>
@@ -377,6 +418,7 @@
                 <button onclick="changeTeam('BLUE')" class="mt-4 w-full bg-blue-600/30 hover:bg-blue-600 border border-blue-500 text-white font-bold py-2 rounded transition-colors ${myTeam === 'BLUE' ? 'hidden' : ''}">ここに入る</button>
               </div>
             </div>
+
             ${isHost ? `
             <div class="mb-6 flex justify-center">
               <button onclick="randomizeTeams()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded shadow flex items-center gap-2 transition-colors">
@@ -384,9 +426,10 @@
               </button>
             </div>
             ` : ''}
+
             ${isHost 
               ? `<button onclick="startGame()" class="w-full ${canStart ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:from-red-500 hover:to-blue-500 cursor-pointer transform hover:scale-105' : 'bg-gray-600 cursor-not-allowed opacity-50'} text-white text-xl font-bold py-4 px-4 rounded shadow-lg transition-all" ${canStart ? '' : 'disabled'}>
-                  ${canStart ? 'ゲーム開始' : '全員揃ったら開始できます'}
+                  ${canStart ? 'ゲーム開始' : '全員がチームに参加すると開始できます'}
                  </button>`
               : `<p class="text-gray-400 animate-pulse font-bold text-lg">ホストがゲームを開始するのを待っています...</p>`
             }
@@ -396,26 +439,18 @@
       }
 
       if (roomData.status === 'playing') {
+        // --- ビンゴ画面 ---
         const renderBoard = (team, boardData) => {
           const isMyBoard = (team === myTeam || isHost);
           const headerColor = team === 'RED' ? 'bg-red-600' : 'bg-blue-600';
           const borderColor = team === 'RED' ? 'border-red-600' : 'border-blue-600';
           const teamDisplayName = team === 'RED' ? 'TEAM1' : 'TEAM2';
           
-          const teamMembers = Object.values(roomData.users || {})
-                                .filter(u => u.team === team)
-                                .map(u => u.name).join('、');
-          
           return `
             <div class="flex-1 bg-gray-800 rounded-xl overflow-hidden border-2 ${borderColor} shadow-2xl ${!isMyBoard ? 'opacity-80' : ''}">
-              <div class="${headerColor} text-center py-2 shadow-md px-4 flex flex-col justify-center">
-                <div class="flex justify-between items-center w-full mb-1">
-                  <span class="font-extrabold text-xl tracking-widest">${teamDisplayName}</span>
-                  ${team === myTeam ? '<span class="text-xs bg-white text-black px-2 py-1 rounded-full font-bold shadow">あなたのチーム</span>' : ''}
-                </div>
-                <div class="text-xs sm:text-sm text-white/90 text-left truncate w-full font-bold">
-                  👤 ${teamMembers || 'メンバーなし'}
-                </div>
+              <div class="${headerColor} text-center py-3 font-extrabold text-xl tracking-widest shadow-md flex justify-between px-4 items-center">
+                <span>${teamDisplayName}</span>
+                ${team === myTeam ? '<span class="text-xs bg-white text-black px-2 py-1 rounded-full font-bold">あなたのチーム</span>' : ''}
               </div>
               <div class="p-2 sm:p-4">
                 <div class="grid grid-cols-5 gap-1 sm:gap-2">
